@@ -674,8 +674,8 @@ with tab3:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(10,14,26,0.6)",
         font=dict(family="DM Mono", size=10),
-        height=450,
-        margin=dict(l=10, r=10, t=50, b=10),
+        height=550,
+        margin=dict(l=10, r=10, t=40, b=40),
         legend=dict(orientation="h", y=1.05),
         hovermode="x unified"
     )
@@ -775,7 +775,7 @@ with tab4:
 
     # Gráfico de abanico por acción
     fig_proj = make_subplots(rows=2, cols=2, subplot_titles=validos,
-                             vertical_spacing=0.15, horizontal_spacing=0.08)
+                             vertical_spacing=0.28, horizontal_spacing=0.08)
 
     for idx, ticker in enumerate(validos):
         r, c = posiciones[idx]
@@ -819,8 +819,8 @@ with tab4:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(10,14,26,0.6)",
         font=dict(family="DM Mono", size=10),
-        height=450,
-        margin=dict(l=10, r=10, t=50, b=10),
+        height=550,
+        margin=dict(l=10, r=10, t=40, b=40),
     )
     fig_proj.update_xaxes(gridcolor="#1e2d40", title_text="Días hábiles")
     fig_proj.update_yaxes(gridcolor="#1e2d40", title_text="Precio (USD)")
