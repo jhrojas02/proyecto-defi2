@@ -804,7 +804,7 @@ with tab4:
         ), row=r, col=c)
         fig_proj.add_trace(go.Scatter(
             x=dias_p, y=p5_line, fill="tonexty",
-            fillcolor=col_p + "18",
+            fillcolor="rgba({},{},{},0.12)".format(*[int(col_p.lstrip("#")[i:i+2], 16) for i in (0,2,4)]),
             line=dict(color=col_p, width=1, dash="dot"),
             name="P5", showlegend=False
         ), row=r, col=c)
