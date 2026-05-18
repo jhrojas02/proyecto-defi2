@@ -337,6 +337,9 @@ for i, ticker in enumerate(tickers_sel):
                 if df.empty or len(df) < 100:
                     st.error(f"{ticker}: sin datos")
                     continue
+                # Manejar MultiIndex que genera yfinance >= 0.2.40
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
                 precio = df["Close"].squeeze().dropna()
                 ret = np.log(precio / precio.shift(1)).dropna()
                 datos[ticker] = precio
@@ -522,12 +525,18 @@ with tab2:
         p5 = np.percentile(paths, 5, axis=0)
         p95 = np.percentile(paths, 95, axis=0)
 
+        # Convertir color hex a rgba para el relleno
+        def hex_to_rgba(hex_color, alpha=0.12):
+            h = hex_color.lstrip("#")
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            return f"rgba({r},{g},{b},{alpha})"
+
         fig.add_trace(go.Scatter(x=dias_proj, y=p95, fill=None,
-                                 line=dict(color=color, width=0, dash="dot"),
+                                 line=dict(color=color, width=1, dash="dot"),
                                  showlegend=False, name="P95"))
         fig.add_trace(go.Scatter(x=dias_proj, y=p5, fill="tonexty",
-                                 fillcolor=color.replace(")", ",0.08)").replace("rgb", "rgba") if "rgb" in color else color + "14",
-                                 line=dict(color=color, width=0, dash="dot"),
+                                 fillcolor=hex_to_rgba(color, 0.12),
+                                 line=dict(color=color, width=1, dash="dot"),
                                  showlegend=False, name="P5"))
         fig.add_trace(go.Scatter(x=dias_proj, y=media,
                                  line=dict(color="#ffffff", width=2.5),
