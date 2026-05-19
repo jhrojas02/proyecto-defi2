@@ -1134,15 +1134,74 @@ with tab6:
     # Equivalente:
     # V0 = K * exp((mu_port - r_libre) * T_total)
 
+    # ── Árbol binomial del VALOR del proyecto ────────────
+
+    # Paso temporal mensual
+    dt = 1 / 12
+
+    # Número de meses de decisión
+    n_pasos = 4
+
+    # Factores binomiales del árbol
+    u = np.exp(sigma_port * np.sqrt(dt))
+    d = 1 / u
+
+    # Probabilidad neutral al riesgo
+    p_rn = (np.exp(r_libre * dt) - d) / (u - d)
+    p_rn = float(np.clip(p_rn, 0.01, 0.99))
+
+    # Horizonte total de la opción
+    T_total = n_pasos * dt
+
     # ─────────────────────────────────────────────
-    # Árbol binomial del valor del proyecto
+    # CONSTRUCCIÓN DEL SUBYACENTE REAL DEL PROYECTO
+    # ─────────────────────────────────────────────
+    # El subyacente es el valor esperado del portafolio
+    # adicional que se compraría con los $50k diferidos.
+    #
+    # En vez de asumir V0 = K, utilizamos el valor
+    # esperado del portafolio construido con datos
+    # reales descargados desde Yahoo Finance.
+
+    # Simulación del PORTAFOLIO base
+    # usando GBM calibrado con los últimos 4 meses.
+
+    n_sim_port = 3000
+
+    # Trayectorias simuladas del índice del portafolio
+    paths_port = simular_gbm(
+        S0=valor_portafolio_hoy,
+        mu=mu_port,
+        sigma=sigma_port,
+        T=T_total,
+        dt=1/252,
+        n_sim=n_sim_port
+    )
+
+    # Valor esperado del portafolio en 4 meses
+    valor_esperado_portafolio = float(
+        np.mean(paths_port[:, -1])
+    )
+
+    # Valor económico del proyecto adicional
+    # proporcional al crecimiento esperado del portafolio
+    V0 = float(
+        inversion_etapa *
+        (valor_esperado_portafolio / valor_portafolio_hoy)
+    )
+
+    # VPN base de invertir inmediatamente
+    vpn_invertir_hoy = max(V0 - inversion_etapa, 0.0)
+
+    # ─────────────────────────────────────────────
+    # Árbol binomial del proyecto
     # ─────────────────────────────────────────────
     Vtree = np.zeros((n_pasos + 1, n_pasos + 1))
 
     for i in range(n_pasos + 1):
         for j in range(i + 1):
 
-            # Nodo binomial multiplicativo
+            # Evolución binomial multiplicativa
             Vtree[j, i] = (
                 V0 *
                 (u ** (i - j)) *
@@ -1154,7 +1213,7 @@ with tab6:
     # ─────────────────────────────────────────────
     K = float(inversion_etapa)
 
-    # costo de diferir mensual
+    # costo mensual de diferir
     costo_m = costo_diferir / 100
 
     # Valor al vencimiento (mes 4): se ejerce solo si V > K
@@ -1182,7 +1241,6 @@ with tab6:
         opt = new_opt
 
     valor_opcion = float(opt[0])
-    vpn_invertir_hoy = max(V0 - K, 0.0)
     prima_flexibilidad = valor_opcion - vpn_invertir_hoy
 
     # ── Métricas clave ───────────────────────────────────
