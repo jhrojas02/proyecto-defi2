@@ -1051,9 +1051,9 @@ with tab6:
             Planteamiento de la opción real
         </div>
         <div style="font-size:0.88rem;color:#e2e8f0;line-height:1.65;">
-            Capital total <strong style="color:#00d4aa;">$100.000</strong>. Se invierten
+            Se invierten
             <strong style="color:#f59e0b;">$50.000</strong> hoy en el portafolio base (las 4 acciones).
-            Los otros <strong style="color:#818cf8;">$50.000</strong> NO se comprometen: tenemos el
+            tenemos el
             <em>derecho, no la obligación</em>, de invertirlos. Cada mes, durante 4 meses, decidimos
             si <strong>ejercer</strong> (invertir los 50k), <strong>diferir</strong> (esperar) o
             <strong>abandonar</strong> (preservar liquidez). El árbol binomial valora cuánto vale
