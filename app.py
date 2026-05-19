@@ -356,12 +356,13 @@ if len(validos) < 4:
 # ─────────────────────────────────────────────
 # TABS PRINCIPALES
 # ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Histórico & Retornos",
     "🔬 Simulaciones",
     "🏆 Backtesting RMSE",
     "🔭 Proyección 1 Mes",
-    "💼 Recomendación"
+    "💼 Recomendación",
+    "🛡️ Estrategia Opciones"
 ])
 
 # ═══════════════════════════════════════════
@@ -1033,5 +1034,276 @@ with tab5:
     st.markdown("""
     <div style="text-align:center; color:#64748b; font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;">
         Universidad Externado de Colombia · Valoración de Activos · SimFolio v1.0
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════
+# TAB 6 — ESTRATEGIA DE OPCIONES
+# ═══════════════════════════════════════════
+with tab6:
+    st.markdown('<div class="section-header">🛡️ Estrategia de Cobertura con <span>Opciones</span> — Árbol Binomial</div>', unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#1a2236;border:1px solid #1e2d40;border-left:3px solid #00d4aa;
+                border-radius:4px;padding:1rem 1.4rem;margin-bottom:1.5rem;">
+        <div style="font-size:0.65rem;color:#64748b;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:0.4rem;">
+            Parámetros generales
+        </div>
+        <div style="display:flex;gap:2rem;flex-wrap:wrap;">
+            <span style="font-size:0.9rem;color:#e2e8f0;">💰 Capital total: <strong style="color:#00d4aa;">$100.000 USD</strong></span>
+            <span style="font-size:0.9rem;color:#e2e8f0;">🎯 Capital en opciones: <strong style="color:#f59e0b;">$50.000 USD</strong></span>
+            <span style="font-size:0.9rem;color:#e2e8f0;">📅 Horizonte: <strong style="color:#818cf8;">4 meses</strong></span>
+            <span style="font-size:0.9rem;color:#e2e8f0;">🔧 Estrategia: <strong style="color:#fff;">Protective Collar</strong></span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── EXPLICACIÓN COLLAR ───────────────────────────────
+    st.markdown('<div class="section-header">📖 ¿Qué es un <span>Protective Collar</span>?</div>', unsafe_allow_html=True)
+
+    col_exp1, col_exp2 = st.columns(2)
+    with col_exp1:
+        st.markdown("""
+        <div style="background:#1a2236;border:1px solid #1e2d40;border-radius:4px;padding:1rem 1.2rem;">
+            <div style="font-size:0.7rem;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem;">Put comprado — protección</div>
+            <div style="font-size:0.85rem;color:#e2e8f0;line-height:1.6;">
+                Otorga el <strong>derecho a vender</strong> la acción al precio strike, sin importar cuánto baje el mercado.
+                Si el precio cae por debajo del strike, el Put genera ganancia que compensa la pérdida en la acción.<br><br>
+                <span style="color:#00d4aa;">Strike: precio actual (ATM)</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_exp2:
+        st.markdown("""
+        <div style="background:#1a2236;border:1px solid #1e2d40;border-radius:4px;padding:1rem 1.2rem;">
+            <div style="font-size:0.7rem;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem;">Call vendido — financiamiento</div>
+            <div style="font-size:0.85rem;color:#e2e8f0;line-height:1.6;">
+                Al vender el Call se recibe una <strong>prima</strong> que financia el costo del Put.
+                Si el precio sube por encima del strike del Call, la acción puede ser "llamada" — se limita la ganancia al alza.<br><br>
+                <span style="color:#f59e0b;">Strike: precio actual × 1.05 (OTM 5%)</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── ÁRBOL BINOMIAL ───────────────────────────────────
+    st.markdown('<div class="section-header">🌳 Árbol Binomial <span>CRR</span> por Acción</div>', unsafe_allow_html=True)
+    st.caption("Modelo de Cox-Ross-Rubinstein — un paso por mes — tasa libre de riesgo r = 5% anual")
+
+    r_anual = 0.05
+    dt = 1 / 12
+
+    arboles = {}
+    for ticker in validos:
+        ret  = retornos_dict[ticker]
+        S0   = float(datos[ticker].iloc[-1])
+        sigma = float(ret.std() * np.sqrt(252))
+        u    = np.exp(sigma * np.sqrt(dt))
+        d    = 1 / u
+        p    = (np.exp(r_anual * dt) - d) / (u - d)
+        p    = float(np.clip(p, 0, 1))
+
+        # Árbol de precios 4 pasos
+        tree = np.zeros((5, 5))
+        for i in range(5):          # mes
+            for j in range(i + 1):  # número de subidas
+                tree[j, i] = S0 * (u ** (i - j)) * (d ** j)
+
+        # Put ATM — strike = S0
+        K_put = S0
+        K_call = S0 * 1.05
+
+        # Valoración put por inducción hacia atrás
+        put_vals = np.maximum(K_put - tree[:, 4], 0)
+        for i in range(3, -1, -1):
+            new_vals = np.zeros(i + 1)
+            for j in range(i + 1):
+                new_vals[j] = np.exp(-r_anual * dt) * (p * put_vals[j] + (1 - p) * put_vals[j + 1])
+            put_vals = new_vals
+        put_price = float(put_vals[0])
+
+        # Valoración call por inducción hacia atrás
+        call_vals = np.maximum(tree[:, 4] - K_call, 0)
+        for i in range(3, -1, -1):
+            new_vals = np.zeros(i + 1)
+            for j in range(i + 1):
+                new_vals[j] = np.exp(-r_anual * dt) * (p * call_vals[j] + (1 - p) * call_vals[j + 1])
+            call_vals = new_vals
+        call_price = float(call_vals[0])
+
+        costo_neto = put_price - call_price
+
+        arboles[ticker] = {
+            "S0": S0, "sigma": sigma, "u": u, "d": d, "p": p,
+            "tree": tree, "K_put": K_put, "K_call": K_call,
+            "put_price": put_price, "call_price": call_price,
+            "costo_neto": costo_neto
+        }
+
+    # Selector de acción para ver el árbol
+    ticker_arbol = st.selectbox("Ver árbol binomial de:", validos, key="arbol_sel")
+    a = arboles[ticker_arbol]
+
+    # Visualizar árbol
+    fig_tree = go.Figure()
+    tree = a["tree"]
+    colores_nodo = ["#00d4aa", "#f59e0b", "#818cf8", "#f43f5e", "#e2e8f0"]
+
+    for mes in range(5):
+        for nodo in range(mes + 1):
+            precio = tree[nodo, mes]
+            color_n = "#00d4aa" if precio >= a["S0"] else "#f43f5e"
+            fig_tree.add_trace(go.Scatter(
+                x=[mes], y=[precio],
+                mode="markers+text",
+                marker=dict(size=36, color=color_n, opacity=0.85,
+                            line=dict(color="#fff", width=1.5)),
+                text=[f"${precio:.1f}"],
+                textposition="middle center",
+                textfont=dict(size=8, color="#0a0e1a", family="DM Mono"),
+                showlegend=False,
+                hovertemplate=f"Mes {mes} | Nodo {nodo}<br>Precio: ${precio:.2f}<extra></extra>"
+            ))
+            # Líneas de conexión
+            if mes < 4:
+                precio_up   = tree[nodo, mes + 1]
+                precio_down = tree[nodo + 1, mes + 1]
+                for p_dest in [precio_up, precio_down]:
+                    fig_tree.add_trace(go.Scatter(
+                        x=[mes, mes + 1], y=[precio, p_dest],
+                        mode="lines",
+                        line=dict(color="#1e2d40", width=1.5),
+                        showlegend=False, hoverinfo="skip"
+                    ))
+
+    # Líneas de referencia
+    fig_tree.add_hline(y=a["K_put"],  line_dash="dot", line_color="#00d4aa",
+                       line_width=1, annotation_text=f"Strike Put ${a['K_put']:.1f}",
+                       annotation_font_color="#00d4aa", annotation_font_size=9)
+    fig_tree.add_hline(y=a["K_call"], line_dash="dot", line_color="#f59e0b",
+                       line_width=1, annotation_text=f"Strike Call ${a['K_call']:.1f}",
+                       annotation_font_color="#f59e0b", annotation_font_size=9)
+
+    fig_tree.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(10,14,26,0.6)",
+        font=dict(family="DM Mono", size=10),
+        height=420,
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis=dict(tickmode="array", tickvals=[0,1,2,3,4],
+                   ticktext=["Mes 0","Mes 1","Mes 2","Mes 3","Mes 4"],
+                   gridcolor="#1e2d40", title=""),
+        yaxis=dict(title="Precio (USD)", gridcolor="#1e2d40"),
+        showlegend=False
+    )
+    st.plotly_chart(fig_tree, use_container_width=True)
+
+    # Parámetros del árbol
+    col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+    params_data = [
+        ("u (subida)", f"{a['u']:.4f}", "neutral"),
+        ("d (bajada)", f"{a['d']:.4f}", "neutral"),
+        ("p (prob. RN)", f"{a['p']:.4f}", "neutral"),
+        ("σ anual",    f"{a['sigma']*100:.1f}%", "neutral"),
+    ]
+    for col, (label, val, tipo) in zip([col_p1, col_p2, col_p3, col_p4], params_data):
+        with col:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">{label}</div>
+                <div class="metric-value neutral">{val}</div>
+            </div>""", unsafe_allow_html=True)
+
+    # ── TABLA DE PRECIOS DE OPCIONES ─────────────────────
+    st.markdown('<div class="section-header">💵 Precios de Opciones por <span>Acción</span></div>', unsafe_allow_html=True)
+
+    rows_op = []
+    for ticker in validos:
+        a = arboles[ticker]
+        rows_op.append({
+            "Acción":          ticker,
+            "Precio Actual":   f"${a['S0']:.2f}",
+            "Strike Put (ATM)":f"${a['K_put']:.2f}",
+            "Strike Call (OTM)":f"${a['K_call']:.2f}",
+            "Prima Put (costo)": f"${a['put_price']:.2f}",
+            "Prima Call (ingreso)": f"${a['call_price']:.2f}",
+            "Costo Neto Collar":f"${a['costo_neto']:.2f}",
+            "Asignación":      "$12.500"
+        })
+
+    df_op = pd.DataFrame(rows_op)
+    st.dataframe(df_op, use_container_width=True, hide_index=True)
+
+    # ── ESTRATEGIA MES A MES ─────────────────────────────
+    st.markdown('<div class="section-header">📅 Estrategia <span>Mes a Mes</span></div>', unsafe_allow_html=True)
+
+    meses_info = [
+        ("Mes 1", "Apertura del Collar",
+         "Comprar Put ATM + Vender Call OTM para cada acción. El costo neto es la diferencia entre la prima del Put y la prima recibida del Call. El portafolio queda protegido desde el primer día.",
+         "#00d4aa"),
+        ("Mes 2", "Revisión y Ajuste",
+         "Evaluar precio actual vs strikes. Si el precio bajó más del 5%: el Put está in-the-money, considerar ejercerlo. Si subió más del 5%: el Call puede ser asignado, evaluar recomprar. Si el precio es estable: rodar el collar al siguiente mes.",
+         "#818cf8"),
+        ("Mes 3", "Segundo Ajuste",
+         "Repetir el proceso. Si el mercado ha caído sostenidamente, el collar ha funcionado: las pérdidas en acciones están compensadas por la ganancia en el Put. Evaluar si reducir la cobertura si el riesgo percibido ha bajado.",
+         "#f59e0b"),
+        ("Mes 4", "Cierre o Renovación",
+         "Al vencimiento: dejar expirar las opciones out-of-the-money. Si el Put está in-the-money: ejercerlo o venderlo — la ganancia compensa la caída del subyacente. Decidir si renovar la estrategia para los próximos 4 meses.",
+         "#f43f5e"),
+    ]
+
+    for mes, titulo, desc, color in meses_info:
+        st.markdown(f"""
+        <div style="background:#1a2236;border:1px solid #1e2d40;border-left:3px solid {color};
+                    border-radius:4px;padding:1rem 1.4rem;margin-bottom:0.8rem;">
+            <div style="display:flex;align-items:center;gap:0.8rem;margin-bottom:0.4rem;">
+                <span style="font-family:Syne,sans-serif;font-size:0.7rem;font-weight:700;
+                             color:{color};text-transform:uppercase;letter-spacing:0.1em;">{mes}</span>
+                <span style="font-family:Syne,sans-serif;font-size:0.95rem;font-weight:700;color:#fff;">{titulo}</span>
+            </div>
+            <div style="font-size:0.85rem;color:#e2e8f0;line-height:1.6;">{desc}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── ESCENARIOS ───────────────────────────────────────
+    st.markdown('<div class="section-header">🎲 Escenarios al Final de <span>4 Meses</span></div>', unsafe_allow_html=True)
+
+    esc_cols = st.columns(3)
+    escenarios = [
+        ("📉 Caída fuerte > 10%", "#f43f5e",
+         "Put in-the-money", "Expira sin valor",
+         "Pérdida acotada al strike del Put. La cobertura funcionó."),
+        ("➡️ Mercado estable", "#818cf8",
+         "Expira sin valor", "Expira sin valor",
+         "Costo neto mínimo. El portafolio se mantiene prácticamente igual."),
+        ("📈 Subida fuerte > 5%", "#00d4aa",
+         "Expira sin valor", "Call asignado — se vende al strike",
+         "Ganancia limitada al 5%. Se renuncia al alza adicional."),
+    ]
+    for col, (titulo, color, res_put, res_call, conclusion) in zip(esc_cols, escenarios):
+        with col:
+            st.markdown(f"""
+            <div style="background:#1a2236;border:1px solid #1e2d40;border-top:3px solid {color};
+                        border-radius:4px;padding:1rem;height:100%;">
+                <div style="font-size:0.85rem;font-weight:700;color:{color};margin-bottom:0.6rem;">{titulo}</div>
+                <div style="font-size:0.75rem;color:#64748b;margin-bottom:0.2rem;">Put comprado:</div>
+                <div style="font-size:0.8rem;color:#e2e8f0;margin-bottom:0.5rem;">{res_put}</div>
+                <div style="font-size:0.75rem;color:#64748b;margin-bottom:0.2rem;">Call vendido:</div>
+                <div style="font-size:0.8rem;color:#e2e8f0;margin-bottom:0.5rem;">{res_call}</div>
+                <div style="font-size:0.78rem;color:{color};margin-top:0.6rem;font-style:italic;">{conclusion}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ── ADVERTENCIA ──────────────────────────────────────
+    st.markdown("""
+    <div class="warning-box" style="margin-top:1.5rem;">
+        <strong>⚠️ Límites de la estrategia</strong><br><br>
+        Los precios de las opciones calculados por el árbol binomial CRR son estimaciones bajo
+        supuestos de volatilidad constante y mercado eficiente. En la práctica, la volatilidad
+        cambia (sonrisa de volatilidad), los spreads bid-ask afectan el costo real, y las opciones
+        sobre acciones individuales tienen menor liquidez que las sobre índices.<br><br>
+        Esta estrategia <strong>no elimina el riesgo</strong> — lo acota. El portafolio renuncia
+        a parte del alza potencial a cambio de protección ante caídas severas.
     </div>
     """, unsafe_allow_html=True)
