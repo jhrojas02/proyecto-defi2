@@ -1097,25 +1097,64 @@ with tab6:
     mu_port = float(np.mean(ret_port) * 252)
 
     # ── Árbol binomial del VALOR del proyecto ────────────
+
+    # Paso temporal mensual
     dt = 1 / 12
+
+    # Número de meses de decisión
+    n_pasos = 4
+
+    # Volatilidad del portafolio → factores up/down
     u = np.exp(sigma_port * np.sqrt(dt))
     d = 1 / u
+
+    # Probabilidad neutral al riesgo
     p_rn = (np.exp(r_libre * dt) - d) / (u - d)
     p_rn = float(np.clip(p_rn, 0.01, 0.99))
 
-    n_pasos = 4
-    # V0 = valor presente del portafolio que se obtendría al invertir K
-    # Lo modelamos como el valor de la posición adicional (proporcional al índice)
-    V0 = float(inversion_etapa)  # valor base del proyecto subyacente al ejercer hoy
+    # Horizonte total de la opción (4 meses)
+    T_total = n_pasos * dt
 
-    # Árbol de valores del subyacente
+    # ─────────────────────────────────────────────
+    # VALOR ECONÓMICO DEL PROYECTO (V0)
+    # ─────────────────────────────────────────────
+    # El subyacente NO es simplemente K.
+    # El subyacente es el valor presente esperado
+    # de los flujos/proyección del portafolio adicional
+    # que obtendríamos al invertir los $50k diferidos.
+
+    # Valor futuro esperado bajo deriva histórica
+    VF_esperado = inversion_etapa * np.exp(mu_port * T_total)
+
+    # Traer a valor presente con tasa libre de riesgo
+    V0 = float(
+        VF_esperado * np.exp(-r_libre * T_total)
+    )
+
+    # Equivalente:
+    # V0 = K * exp((mu_port - r_libre) * T_total)
+
+    # ─────────────────────────────────────────────
+    # Árbol binomial del valor del proyecto
+    # ─────────────────────────────────────────────
     Vtree = np.zeros((n_pasos + 1, n_pasos + 1))
+
     for i in range(n_pasos + 1):
         for j in range(i + 1):
-            Vtree[j, i] = V0 * (u ** (i - j)) * (d ** j)
 
-    # Inducción hacia atrás: max(ejercer ahora, valor de esperar)
+            # Nodo binomial multiplicativo
+            Vtree[j, i] = (
+                V0 *
+                (u ** (i - j)) *
+                (d ** j)
+            )
+
+    # ─────────────────────────────────────────────
+    # Parámetros de la opción real
+    # ─────────────────────────────────────────────
     K = float(inversion_etapa)
+
+    # costo de diferir mensual
     costo_m = costo_diferir / 100
 
     # Valor al vencimiento (mes 4): se ejerce solo si V > K
