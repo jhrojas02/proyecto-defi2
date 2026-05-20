@@ -1039,6 +1039,8 @@ with tab5:
 
 
 # ═══════════════════════════════════════════
+
+# ═══════════════════════════════════════════
 # TAB 6 — OPCIONES REALES (Inversión por etapas)
 # ═══════════════════════════════════════════
 with tab6:
@@ -1051,11 +1053,11 @@ with tab6:
             Planteamiento de la opción real
         </div>
         <div style="font-size:0.88rem;color:#e2e8f0;line-height:1.65;">
-            Se invierten
+            Capital total <strong style="color:#00d4aa;">$100.000</strong>. Se invierten
             <strong style="color:#f59e0b;">$50.000</strong> hoy en el portafolio base (las 4 acciones).
-            tenemos el
+            Los otros <strong style="color:#818cf8;">$50.000</strong> NO se comprometen: tenemos el
             <em>derecho, no la obligación</em>, de invertirlos. Cada mes, durante 4 meses, decidimos
-            si <strong>ejercer</strong> (invertir los 50k), <strong>diferir</strong> (esperar) o
+            si <strong>ejercer</strong> (invertir los $50k), <strong>diferir</strong> (esperar) o
             <strong>abandonar</strong> (preservar liquidez). El árbol binomial valora cuánto vale
             esa flexibilidad.
         </div>
@@ -1067,20 +1069,33 @@ with tab6:
 
     colp1, colp2, colp3 = st.columns(3)
     with colp1:
-        inversion_etapa = st.number_input("Inversión diferida (K)", 10000, 50000, 50000, 5000,
-                                          help="Capital que se compromete al ejercer la opción")
+        inversion_etapa = st.number_input(
+            "Inversión diferida (K)", 10000, 50000, 50000, 5000,
+            help="Capital que se compromete al ejercer la opción"
+        )
     with colp2:
-        costo_diferir = st.slider("Costo de oportunidad mensual (%)", 0.0, 2.0, 0.5, 0.1,
-                                  help="Penalización por mantener el capital sin invertir")
+        costo_diferir = st.slider(
+            "Costo de oportunidad mensual (%)", 0.0, 2.0, 0.5, 0.1,
+            help="Penalización mensual por mantener el capital sin invertir"
+        )
     with colp3:
-        r_libre = st.slider("Tasa libre de riesgo anual (%)", 0.0, 8.0, 5.0, 0.5) / 100
+        r_libre = st.slider(
+            "Tasa libre de riesgo anual (%)", 0.0, 8.0, 5.0, 0.5
+        ) / 100
 
-    st.caption("El subyacente de la opción real es el **valor del portafolio base** construido con las 4 acciones, "
-               "calibrado con los últimos 4 meses de comportamiento (volatilidad y deriva).")
+    st.caption(
+        "El subyacente de la opción real es el **valor presente del portafolio adicional** "
+        "que se obtendría al invertir los $50k diferidos, calibrado con los últimos 4 meses "
+        "de comportamiento real (volatilidad y deriva) de las 4 acciones."
+    )
 
-    # ── Construir el valor del portafolio base ───────────
-    # Portafolio igualmente ponderado de las 4 acciones, normalizado a $50.000
-    n_dias_4m = 84  # ~4 meses bursátiles
+    # ─────────────────────────────────────────────────────
+    # PASO 1 — Calibrar portafolio con últimos 4 meses
+    # ─────────────────────────────────────────────────────
+    # Índice igualmente ponderado de las 4 acciones
+    # usando los últimos ~84 días hábiles (4 meses)
+
+    n_dias_4m = 84
     precios_norm = []
     for ticker in validos:
         p = datos[ticker].iloc[-n_dias_4m:]
@@ -1088,159 +1103,105 @@ with tab6:
 
     min_len = min(len(x) for x in precios_norm)
     precios_norm = [x[-min_len:] for x in precios_norm]
-    portafolio_idx = np.mean(precios_norm, axis=0)  # índice del portafolio
-    valor_portafolio_hoy = 50000.0  # los 50k iniciales ya invertidos
+    portafolio_idx = np.mean(precios_norm, axis=0)
 
-    # Retornos del portafolio (últimos 4 meses)
+    # Retornos logarítmicos diarios del portafolio
     ret_port = np.diff(np.log(portafolio_idx))
-    sigma_port = float(np.std(ret_port) * np.sqrt(252))
-    mu_port = float(np.mean(ret_port) * 252)
 
-    # ── Árbol binomial del VALOR del proyecto ────────────
+    # Parámetros calibrados con datos reales
+    sigma_port = float(np.std(ret_port) * np.sqrt(252))   # volatilidad anual
+    mu_port    = float(np.mean(ret_port) * 252)            # deriva anual
 
-    # Paso temporal mensual
-    dt = 1 / 12
-
-    # Número de meses de decisión
-    n_pasos = 4
-
-    # Volatilidad del portafolio → factores up/down
-    u = np.exp(sigma_port * np.sqrt(dt))
-    d = 1 / u
-
-    # Probabilidad neutral al riesgo
-    p_rn = (np.exp(r_libre * dt) - d) / (u - d)
-    p_rn = float(np.clip(p_rn, 0.01, 0.99))
-
-    # Horizonte total de la opción (4 meses)
-    T_total = n_pasos * dt
-
-    # ─────────────────────────────────────────────
-    # VALOR ECONÓMICO DEL PROYECTO (V0)
-    # ─────────────────────────────────────────────
-    # El subyacente NO es simplemente K.
-    # El subyacente es el valor presente esperado
-    # de los flujos/proyección del portafolio adicional
-    # que obtendríamos al invertir los $50k diferidos.
-
-    # Valor futuro esperado bajo deriva histórica
-    VF_esperado = inversion_etapa * np.exp(mu_port * T_total)
-
-    # Traer a valor presente con tasa libre de riesgo
-    V0 = float(
-        VF_esperado * np.exp(-r_libre * T_total)
-    )
-
-    # Equivalente:
-    # V0 = K * exp((mu_port - r_libre) * T_total)
-
-    # ── Árbol binomial del VALOR del proyecto ────────────
-
-    # Paso temporal mensual
-    dt = 1 / 12
-
-    # Número de meses de decisión
-    n_pasos = 4
-
-    # Factores binomiales del árbol
-    u = np.exp(sigma_port * np.sqrt(dt))
-    d = 1 / u
-
-    # Probabilidad neutral al riesgo
-    p_rn = (np.exp(r_libre * dt) - d) / (u - d)
-    p_rn = float(np.clip(p_rn, 0.01, 0.99))
-
-    # Horizonte total de la opción
-    T_total = n_pasos * dt
-
-    # ─────────────────────────────────────────────
-    # CONSTRUCCIÓN DEL SUBYACENTE REAL DEL PROYECTO
-    # ─────────────────────────────────────────────
-    # El subyacente es el valor esperado del portafolio
-    # adicional que se compraría con los $50k diferidos.
+    # ─────────────────────────────────────────────────────
+    # PASO 2 — Valor presente del subyacente (V0)
+    # ─────────────────────────────────────────────────────
+    # En opciones reales, el subyacente es el VALOR PRESENTE
+    # del activo que se adquiriría al ejercer la opción.
     #
-    # En vez de asumir V0 = K, utilizamos el valor
-    # esperado del portafolio construido con datos
-    # reales descargados desde Yahoo Finance.
+    # Fórmula:
+    #   V0 = K × exp((mu - r) × T)
+    #
+    # Interpretación:
+    #   - Si mu > r: el portafolio crece más rápido que la
+    #     tasa libre de riesgo → V0 > K → hay VPN positivo
+    #     de invertir hoy → ejercer puede ser óptimo.
+    #   - Si mu < r: V0 < K → diferir o abandonar.
+    #   - Si mu ≈ r: V0 ≈ K → opción at-the-money,
+    #     la prima de flexibilidad es máxima.
+    #
+    # Esto es equivalente al valor presente esperado bajo
+    # la medida real, descontado a la tasa libre de riesgo.
 
-    # Simulación del PORTAFOLIO base
-    # usando GBM calibrado con los últimos 4 meses.
+    K       = float(inversion_etapa)
+    n_pasos = 4
+    dt      = 1 / 12
+    T_total = n_pasos * dt   # 4 meses en años
 
-    n_sim_port = 3000
+    V0 = K * np.exp((mu_port - r_libre) * T_total)
 
-    # Trayectorias simuladas del índice del portafolio
-    paths_port = simular_gbm(
-        S0=valor_portafolio_hoy,
-        mu=mu_port,
-        sigma=sigma_port,
-        T=T_total,
-        dt=1/252,
-        n_sim=n_sim_port
-    )
+    # VPN de invertir hoy (sin opcionalidad)
+    vpn_invertir_hoy = max(V0 - K, 0.0)
 
-    # Valor esperado del portafolio en 4 meses
-    valor_esperado_portafolio = float(
-        np.mean(paths_port[:, -1])
-    )
+    # ─────────────────────────────────────────────────────
+    # PASO 3 — Parámetros del árbol binomial CRR
+    # ─────────────────────────────────────────────────────
+    u   = np.exp(sigma_port * np.sqrt(dt))
+    d   = 1 / u
+    p_rn = float(np.clip(
+        (np.exp(r_libre * dt) - d) / (u - d),
+        0.01, 0.99
+    ))
 
-    # Valor económico del proyecto adicional
-    # proporcional al crecimiento esperado del portafolio
-    V0 = float(
-        inversion_etapa *
-        (valor_esperado_portafolio / valor_portafolio_hoy)
-    )
+    # ─────────────────────────────────────────────────────
+    # PASO 4 — Árbol de valores del subyacente
+    # ─────────────────────────────────────────────────────
+    # Cada nodo (j, i): j subidas desde el nodo raíz
+    # en el mes i.
+    #   Vtree[j, i] = V0 × u^(i-j) × d^j
 
-    # VPN base de invertir inmediatamente
-    vpn_invertir_hoy = max(V0 - inversion_etapa, 0.0)
-
-    # ─────────────────────────────────────────────
-    # Árbol binomial del proyecto
-    # ─────────────────────────────────────────────
     Vtree = np.zeros((n_pasos + 1, n_pasos + 1))
-
     for i in range(n_pasos + 1):
         for j in range(i + 1):
+            Vtree[j, i] = V0 * (u ** (i - j)) * (d ** j)
 
-            # Evolución binomial multiplicativa
-            Vtree[j, i] = (
-                V0 *
-                (u ** (i - j)) *
-                (d ** j)
-            )
+    # ─────────────────────────────────────────────────────
+    # PASO 5 — Inducción hacia atrás: valor de la opción
+    # ─────────────────────────────────────────────────────
+    costo_m  = costo_diferir / 100
+    decisiones = {}
 
-    # ─────────────────────────────────────────────
-    # Parámetros de la opción real
-    # ─────────────────────────────────────────────
-    K = float(inversion_etapa)
-
-    # costo mensual de diferir
-    costo_m = costo_diferir / 100
-
-    # Valor al vencimiento (mes 4): se ejerce solo si V > K
+    # Valor en el vencimiento (mes 4)
     opt = np.maximum(Vtree[:, n_pasos] - K, 0.0)
-    decisiones = {}  # (mes, nodo) -> "Ejercer"/"Diferir"/"Abandonar"
-
     for j in range(n_pasos + 1):
-        decisiones[(n_pasos, j)] = "Ejercer" if Vtree[j, n_pasos] > K else "Abandonar"
+        decisiones[(n_pasos, j)] = (
+            "Ejercer" if Vtree[j, n_pasos] > K else "Abandonar"
+        )
 
+    # Inducción hacia atrás mes 3 → mes 0
     for i in range(n_pasos - 1, -1, -1):
         new_opt = np.zeros(i + 1)
         for j in range(i + 1):
-            valor_esperar = np.exp(-r_libre * dt) * (p_rn * opt[j] + (1 - p_rn) * opt[j + 1])
-            valor_esperar *= (1 - costo_m)  # penalización por diferir
+            # Valor esperado descontado de mantener la opción viva
+            valor_esperar = (
+                np.exp(-r_libre * dt)
+                * (p_rn * opt[j] + (1 - p_rn) * opt[j + 1])
+                * (1 - costo_m)   # penalización por no invertir
+            )
+            # Valor de ejercer ahora: VPN inmediato
             valor_ejercer = max(Vtree[j, i] - K, 0.0)
+
             if valor_ejercer >= valor_esperar and valor_ejercer > 0:
-                new_opt[j] = valor_ejercer
+                new_opt[j]         = valor_ejercer
                 decisiones[(i, j)] = "Ejercer"
             elif valor_esperar > 0:
-                new_opt[j] = valor_esperar
+                new_opt[j]         = valor_esperar
                 decisiones[(i, j)] = "Diferir"
             else:
-                new_opt[j] = 0.0
+                new_opt[j]         = 0.0
                 decisiones[(i, j)] = "Abandonar"
         opt = new_opt
 
-    valor_opcion = float(opt[0])
+    valor_opcion     = float(opt[0])
     prima_flexibilidad = valor_opcion - vpn_invertir_hoy
 
     # ── Métricas clave ───────────────────────────────────
@@ -1249,73 +1210,135 @@ with tab6:
     cm1, cm2, cm3, cm4 = st.columns(4)
     with cm1:
         st.markdown(f"""<div class="metric-card">
-            <div class="metric-label">Valor opción de espera</div>
-            <div class="metric-value">${valor_opcion:,.0f}</div></div>""", unsafe_allow_html=True)
+            <div class="metric-label">V0 — Valor presente subyacente</div>
+            <div class="metric-value">${V0:,.0f}</div>
+        </div>""", unsafe_allow_html=True)
     with cm2:
         st.markdown(f"""<div class="metric-card">
             <div class="metric-label">VPN invertir hoy</div>
-            <div class="metric-value neutral">${vpn_invertir_hoy:,.0f}</div></div>""", unsafe_allow_html=True)
+            <div class="metric-value neutral">${vpn_invertir_hoy:,.0f}</div>
+        </div>""", unsafe_allow_html=True)
     with cm3:
-        color_pf = "" if prima_flexibilidad >= 0 else "danger"
         st.markdown(f"""<div class="metric-card">
             <div class="metric-label">Prima de flexibilidad</div>
-            <div class="metric-value {'warn' if prima_flexibilidad>=0 else 'danger'}">${prima_flexibilidad:,.0f}</div></div>""",
-            unsafe_allow_html=True)
+            <div class="metric-value {'warn' if prima_flexibilidad>=0 else 'danger'}">${prima_flexibilidad:,.0f}</div>
+        </div>""", unsafe_allow_html=True)
     with cm4:
         decision_hoy = decisiones[(0, 0)]
         col_d = {"Ejercer": "", "Diferir": "warn", "Abandonar": "danger"}[decision_hoy]
         st.markdown(f"""<div class="metric-card">
             <div class="metric-label">Decisión en mes 0</div>
-            <div class="metric-value {col_d}">{decision_hoy}</div></div>""", unsafe_allow_html=True)
+            <div class="metric-value {col_d}">{decision_hoy}</div>
+        </div>""", unsafe_allow_html=True)
 
+    # Mensaje interpretativo dinámico
     if prima_flexibilidad > 0:
-        st.success(f"✅ La opción de esperar vale **${prima_flexibilidad:,.0f}** más que invertir los "
-                   f"${inversion_etapa:,.0f} hoy. Financieramente conviene la **inversión por etapas**.")
+        st.success(
+            f"✅ La opción de esperar vale **${prima_flexibilidad:,.0f}** más que invertir los "
+            f"${inversion_etapa:,.0f} hoy. Financieramente conviene la **inversión por etapas**."
+        )
+    elif decision_hoy == "Ejercer":
+        st.info(
+            f"ℹ️ El portafolio ya genera suficiente valor (V0 = ${V0:,.0f} > K = ${K:,.0f}). "
+            f"Conviene **invertir los ${inversion_etapa:,.0f} de inmediato**."
+        )
     else:
-        st.info(f"ℹ️ No hay prima de flexibilidad relevante: conviene **invertir los "
-                f"${inversion_etapa:,.0f} de inmediato**, el subyacente ya supera el umbral.")
+        st.warning(
+            f"⚠️ El portafolio no supera el umbral de inversión. "
+            f"La decisión óptima es **{decision_hoy.lower()}**."
+        )
+
+    # Mostrar parámetros calibrados
+    with st.expander("🔢 Parámetros calibrados del portafolio (últimos 4 meses)"):
+        col_pp1, col_pp2, col_pp3, col_pp4 = st.columns(4)
+        for col, label, val in zip(
+            [col_pp1, col_pp2, col_pp3, col_pp4],
+            ["µ anual portafolio", "σ anual portafolio", "u (subida)", "d (bajada)"],
+            [f"{mu_port*100:.2f}%", f"{sigma_port*100:.2f}%", f"{u:.4f}", f"{d:.4f}"]
+        ):
+            with col:
+                st.markdown(f"""<div class="metric-card">
+                    <div class="metric-label">{label}</div>
+                    <div class="metric-value neutral">{val}</div>
+                </div>""", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="margin-top:0.8rem;font-size:0.8rem;color:#64748b;line-height:1.7;">
+            <strong style="color:#e2e8f0;">V0 = K × exp((µ − r) × T)</strong>
+            = ${K:,.0f} × exp(({mu_port*100:.2f}% − {r_libre*100:.1f}%) × {T_total:.3f})
+            = <strong style="color:#00d4aa;">${V0:,.0f}</strong><br>
+            p (prob. neutral al riesgo) = {p_rn:.4f}
+        </div>
+        """, unsafe_allow_html=True)
 
     # ── Árbol de decisión visual ─────────────────────────
     st.markdown('<div class="section-header">🌳 Árbol Binomial de <span>Decisión</span></div>', unsafe_allow_html=True)
-    st.caption("Cada nodo muestra el valor del portafolio subyacente y la decisión óptima. "
-               "Verde = Ejercer · Ámbar = Diferir · Rojo = Abandonar.")
+    st.caption("Cada nodo muestra el valor del subyacente. Verde = Ejercer · Ámbar = Diferir · Rojo = Abandonar.")
 
     fig_rt = go.Figure()
     color_dec = {"Ejercer": "#00d4aa", "Diferir": "#f59e0b", "Abandonar": "#f43f5e"}
 
     for mes in range(n_pasos + 1):
         for nodo in range(mes + 1):
-            v = Vtree[nodo, mes]
+            v   = Vtree[nodo, mes]
             dec = decisiones[(mes, nodo)]
-            # conexiones
+            # Líneas de conexión al siguiente mes
             if mes < n_pasos:
-                for v_dest_idx in [nodo, nodo + 1]:
+                for dest in [nodo, nodo + 1]:
                     fig_rt.add_trace(go.Scatter(
-                        x=[mes, mes + 1], y=[v, Vtree[v_dest_idx, mes + 1]],
-                        mode="lines", line=dict(color="#1e2d40", width=1.4),
-                        showlegend=False, hoverinfo="skip"))
+                        x=[mes, mes + 1],
+                        y=[v, Vtree[dest, mes + 1]],
+                        mode="lines",
+                        line=dict(color="#1e2d40", width=1.4),
+                        showlegend=False, hoverinfo="skip"
+                    ))
+            # Nodo
             fig_rt.add_trace(go.Scatter(
-                x=[mes], y=[v], mode="markers+text",
-                marker=dict(size=42, color=color_dec[dec], opacity=0.9,
-                            line=dict(color="#fff", width=1.5)),
-                text=[f"${v/1000:.1f}k"], textposition="middle center",
+                x=[mes], y=[v],
+                mode="markers+text",
+                marker=dict(
+                    size=42, color=color_dec[dec], opacity=0.9,
+                    line=dict(color="#fff", width=1.5)
+                ),
+                text=[f"${v/1000:.1f}k"],
+                textposition="middle center",
                 textfont=dict(size=8, color="#0a0e1a", family="DM Mono"),
                 showlegend=False,
-                hovertemplate=f"Mes {mes}<br>Valor: ${v:,.0f}<br>Decisión: <b>{dec}</b><extra></extra>"))
+                hovertemplate=(
+                    f"Mes {mes} | Nodo {nodo}<br>"
+                    f"Valor subyacente: ${v:,.0f}<br>"
+                    f"Decisión óptima: <b>{dec}</b><extra></extra>"
+                )
+            ))
 
-    fig_rt.add_hline(y=K, line_dash="dot", line_color="#818cf8", line_width=1.2,
-                     annotation_text=f"Umbral inversión K = ${K:,.0f}",
-                     annotation_font_color="#818cf8", annotation_font_size=9)
+    # Línea del umbral K
+    fig_rt.add_hline(
+        y=K, line_dash="dot", line_color="#818cf8", line_width=1.2,
+        annotation_text=f"Umbral K = ${K:,.0f}",
+        annotation_font_color="#818cf8", annotation_font_size=9
+    )
+    # Línea del V0
+    fig_rt.add_hline(
+        y=V0, line_dash="dot", line_color="#00d4aa", line_width=1,
+        annotation_text=f"V0 = ${V0:,.0f}",
+        annotation_font_color="#00d4aa", annotation_font_size=9,
+        annotation_position="bottom right"
+    )
 
     fig_rt.update_layout(
-        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(10,14,26,0.6)", font=dict(family="DM Mono", size=10),
-        height=440, margin=dict(l=10, r=10, t=20, b=10),
-        xaxis=dict(tickmode="array", tickvals=list(range(5)),
-                   ticktext=["Mes 0","Mes 1","Mes 2","Mes 3","Mes 4"],
-                   gridcolor="#1e2d40"),
-        yaxis=dict(title="Valor del portafolio subyacente (USD)", gridcolor="#1e2d40"),
-        showlegend=False)
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(10,14,26,0.6)",
+        font=dict(family="DM Mono", size=10),
+        height=440,
+        margin=dict(l=10, r=10, t=20, b=10),
+        xaxis=dict(
+            tickmode="array", tickvals=list(range(5)),
+            ticktext=["Mes 0","Mes 1","Mes 2","Mes 3","Mes 4"],
+            gridcolor="#1e2d40"
+        ),
+        yaxis=dict(title="Valor del subyacente (USD)", gridcolor="#1e2d40"),
+        showlegend=False
+    )
     st.plotly_chart(fig_rt, use_container_width=True)
 
     # ── Tabla de decisión mes a mes ──────────────────────
@@ -1324,23 +1347,19 @@ with tab6:
     rows_dec = []
     for mes in range(n_pasos + 1):
         nodos_mes = [decisiones[(mes, j)] for j in range(mes + 1)]
-        n_ej = nodos_mes.count("Ejercer")
-        n_di = nodos_mes.count("Diferir")
-        n_ab = nodos_mes.count("Abandonar")
-        v_min = Vtree[mes, mes]
-        v_max = Vtree[0, mes]
         rows_dec.append({
             "Mes": f"Mes {mes}",
-            "Rango valor subyacente": f"${v_min:,.0f} – ${v_max:,.0f}",
-            "Nodos Ejercer": n_ej,
-            "Nodos Diferir": n_di,
-            "Nodos Abandonar": n_ab,
-            "Acción recomendada": ("Invertir K" if mes == 0 and decisiones[(0,0)] == "Ejercer"
-                                   else "Mantener opción" if mes == 0
-                                   else "Reevaluar según nodo")
+            "Rango valor subyacente": f"${Vtree[mes, mes]:,.0f} – ${Vtree[0, mes]:,.0f}",
+            "Nodos Ejercer":   nodos_mes.count("Ejercer"),
+            "Nodos Diferir":   nodos_mes.count("Diferir"),
+            "Nodos Abandonar": nodos_mes.count("Abandonar"),
+            "Acción en mes 0": (
+                "Invertir K"      if mes == 0 and decision_hoy == "Ejercer"
+                else "Mantener opción" if mes == 0
+                else "Reevaluar según nodo"
+            )
         })
-    df_dec = pd.DataFrame(rows_dec)
-    st.dataframe(df_dec, use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows_dec), use_container_width=True, hide_index=True)
 
     # ── Interpretación financiera ────────────────────────
     st.markdown('<div class="section-header">📖 Interpretación <span>Financiera</span></div>', unsafe_allow_html=True)
@@ -1350,12 +1369,15 @@ with tab6:
         st.markdown(f"""
         <div style="background:#1a2236;border:1px solid #1e2d40;border-left:3px solid #00d4aa;
                     border-radius:4px;padding:1rem 1.2rem;">
-            <div style="font-size:0.7rem;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem;">Valor de la flexibilidad</div>
+            <div style="font-size:0.7rem;color:#64748b;text-transform:uppercase;
+                        letter-spacing:0.1em;margin-bottom:0.5rem;">Valor de la flexibilidad</div>
             <div style="font-size:0.85rem;color:#e2e8f0;line-height:1.6;">
-                La prima de flexibilidad de <strong style="color:#00d4aa;">${prima_flexibilidad:,.0f}</strong>
-                cuantifica el valor de NO comprometer el capital de inmediato. Es el equivalente
-                gerencial a una opción call sobre el proyecto: capturamos el alza si el portafolio
-                sube, y evitamos comprometer ${K:,.0f} si cae bajo el umbral.
+                La prima de flexibilidad de
+                <strong style="color:#00d4aa;">${prima_flexibilidad:,.0f}</strong>
+                cuantifica el valor de NO comprometer el capital de inmediato.
+                Es el equivalente gerencial a una opción call sobre el proyecto:
+                capturamos el alza si el portafolio sube, y evitamos comprometer
+                ${K:,.0f} si cae bajo el umbral de inversión.
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1363,12 +1385,15 @@ with tab6:
         st.markdown(f"""
         <div style="background:#1a2236;border:1px solid #1e2d40;border-left:3px solid #818cf8;
                     border-radius:4px;padding:1rem 1.2rem;">
-            <div style="font-size:0.7rem;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem;">Volatilidad como activo</div>
+            <div style="font-size:0.7rem;color:#64748b;text-transform:uppercase;
+                        letter-spacing:0.1em;margin-bottom:0.5rem;">Volatilidad como activo</div>
             <div style="font-size:0.85rem;color:#e2e8f0;line-height:1.6;">
-                Con σ del portafolio = <strong style="color:#818cf8;">{sigma_port*100:.1f}%</strong>,
-                mayor incertidumbre <em>incrementa</em> el valor de la opción real: la flexibilidad
-                de esperar vale más cuando el rango de resultados futuros es más amplio.
-                Aquí la volatilidad juega a favor del que tiene la opción.
+                Con σ = <strong style="color:#818cf8;">{sigma_port*100:.1f}%</strong>
+                y µ = <strong style="color:#818cf8;">{mu_port*100:.1f}%</strong>
+                (últimos 4 meses), mayor incertidumbre <em>incrementa</em> el valor de
+                la opción real. La flexibilidad de esperar vale más cuando el rango
+                de resultados futuros es más amplio. Aquí la volatilidad juega
+                a favor del que tiene la opción.
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1376,18 +1401,20 @@ with tab6:
     st.markdown("""
     <div class="warning-box" style="margin-top:1.5rem;">
         <strong>⚠️ Límites del modelo de opciones reales</strong><br><br>
-        El árbol binomial asume que el valor del proyecto sigue un proceso multiplicativo con
-        volatilidad constante y que existe una medida neutral al riesgo replicable. En opciones
-        reales esta replicación es imperfecta: el portafolio subyacente no siempre es perfectamente
-        negociable y la volatilidad del proyecto se estima, no se observa directamente.<br><br>
-        El valor de la opción es una guía de decisión, no una garantía. La decisión de ejercer,
-        diferir o abandonar debe revisarse cada mes con datos actualizados.
+        El árbol binomial asume volatilidad constante y replicabilidad del subyacente.
+        En opciones reales esta replicación es imperfecta: el portafolio subyacente
+        no siempre es perfectamente negociable y la volatilidad se estima con datos
+        históricos, no se observa directamente en mercado.<br><br>
+        El valor de la opción es una <strong>guía de decisión</strong>, no una garantía.
+        La decisión de ejercer, diferir o abandonar debe revisarse cada mes con
+        datos actualizados.
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
-    <div style="text-align:center; color:#64748b; font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase;">
+    <div style="text-align:center;color:#64748b;font-size:0.7rem;
+                letter-spacing:0.1em;text-transform:uppercase;">
         Universidad Externado de Colombia · Valoración de Activos · SimFolio v1.0
     </div>
     """, unsafe_allow_html=True)
